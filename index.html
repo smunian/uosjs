@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+	<meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
+  
+	<style type="text/css">
+	body, html{width: 100%;height: 100%;overflow: hidden;margin:0;font-family:"微软雅黑";}
+  .main{
+    width: 100%;
+    height: 100%;
+  }
+  .left{
+    float: left;
+    width: 20%;
+    height: 100%;
+  }
+  .left-list{
+    width: 100%;
+    height: 100%;
+    overflow:auto;
+  }
+  .left div{
+      font-family:"微软雅黑";
+      border-bottom: 1px solid #DCDCDC;
+  }
+  .left .normal{
+      color: #696969;
+      font-size: 10px;
+      line-height: 35px;
+      min-height:35px;
+  }
+  .right{
+    float: right;
+    width: 80%;
+    height: 100%;
+    overflow: hidden;
+  }
+  #allmap{width: 100%;height: 100%;overflow: hidden;margin:0;font-family:"微软雅黑";}
+  .warn{
+    font-size: 10px;
+    color: #fff;
+    background-color: rgb(245, 99, 128);
+  }
+  
+	</style>
+	<script type="text/javascript" src="https://api.map.baidu.com/api?v=3.0&ak=m13tzCbkU0AwDlqK2Bs8pDF2s33i0URd"></script>
+	<script src="//mapopen.bj.bcebos.com/github/BMapGLLib/TrackAnimation/src/TrackAnimation.min.js"></script>
+	<title>地图展示</title>
+</head>
+<body>
+  <div class="main">
+    <div class="left">
+      <div>
+        <select id='scl'></select>
+        <div>
+            <div class='map-overlay top'>
+                <div class='map-overlay-inner'>
+                    <label>时间轨迹回放: <span id='slider-value'></span></label>
+                    <input id='slider1' type='range' min='0' max='100' step='1' value='0' />
+                </div>
+            </div>
+            <div class='map-overlay top'>
+                <div class='map-overlay-inner'>
+                    <label>速度控制: <span id='slider-value'></span></label>
+                    <input id='slider2' type='range' min='1' max='5' step='1' value='0' />
+                </div>
+            </div>
+        </div>
+      </div>
+      <div class="left-list"></div>
+    </div>
+    <div class="right">
+      <div id="allmap"></div>
+    </div> 
+  </div>
+</body>
+</html>
+<script src="https://cdn.bootcdn.net/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+<script type="text/javascript">
+let scl=document.getElementById('scl');
+let slider1=document.getElementById('slider1');
+let slider2=document.getElementById('slider2');
+slider1.addEventListener('change',function(){
+  console.log(slider1.value); 
+})
+slider2.addEventListener('change',function(){
+  t1=parseInt(slider2.value)*1000;
+  //console.log(slider2.value); 
+})
+scl.addEventListener('change',function(){
+    var index=scl.selectedIndex; //序号，取当前选中选项的序号
+    var val = scl.options[index].value;
+    if(t){
+      $('.left-list').children().remove();
+      clearInterval(t);
+    }
+    zx();
+})
+function cx1(){
+    return new Promise(function (resolve, reject){
+        $.get('http://www.map.zyqnet.cn/cx1',function(d){
+            let scl=document.getElementById('scl');
+            let arr=[];
+            d.forEach(i=>{
+                arr.push(i.Tables_in_DBmosquitto);
+                scl.add(new Option(i.Tables_in_DBmosquitto,i.Tables_in_DBmosquitto));
+            })
+            resolve(arr);
+        })
+    })
+}
+//初始化查询获取数组
+//cx1().then();
+function cx2(){
+    return new Promise(function(resolve,reject){
+        let scl=document.getElementById('scl');
+        var index=scl.selectedIndex;
+        var val = scl.options[index].value;
+        //console.log(val);
+        let m={val:val};
+        $.get('http://127.0.0.1:8083/cx2',m,function(d){
+            console.log(d);
+            resolve(d);
+        })
+    })
+}
+//创建promise对象防止回调地狱，函数主要原来获取经纬度
+function ff(){
+    return new Promise(function (resolve, reject) {
+      let scl=document.getElementById('scl');
+      var index=scl.selectedIndex;
+      var val = scl.options[index].value;
+      let m={val:val};
+      $.get('http://www.map.zyqnet.cn/cx2',m,function(d){
+      //alert(JSON.stringify(d));
+      //console.log(d);
+      let arr1=[];
+      d.forEach(i => {
+        let reObject={id:i.id,topic:i.topic,uploadtime:i.uploadtime,payload:i.payload,key:''};
+        if(i.payload.length!=0&&Object.prototype.toString.call(i.payload)=='[object String]'){
+          try{
+            let payload= JSON.parse(i.payload);
+            val(payload);
+            function val(p){
+              let key={}; 
+              for (const k1 in p) {
+                
+                if(p[k1].length!=0&&Object.prototype.toString.call(p[k1])=='[object Object]'){
+                  val(p[k1]);
+                }else{
+                  if(k1=='latitude'||k1=='longitude'){
+                    if(k1=='latitude'){
+                      key.latitude=p[k1];
+                    }
+                    if(k1=='longitude'){
+                      key.longitude=p[k1];
+                    }
+                    if(key.latitude&&key.longitude){
+                      //console.log(key);
+                      reObject.key=key;
+                      arr1.push(reObject);
+                      return
+                    }
+                  }
+                }
+              }
+            }
+          }catch{}
+        }
+      });
+      resolve(arr1);
+    })
+  });
+}
+//把所有的wps坐标转化成point坐标对象，用来作为转换参数
+function f1(arr2){
+  return new Promise(function (resolve, reject) {
+    //var points=[];
+    arr2.forEach(i=>{
+      //points.push(new BMap.Point(i.key.longitude,i.key.latitude));
+      //console.log(i);
+      i.baidukey=new BMap.Point(i.key.longitude,i.key.latitude);
+    });
+    //console.log(arr2);
+    resolve(arr2);
+  })
+};
+var x = 119.306923;
+var y = 26.032347;
+var ggPoint = new BMap.Point(x,y);
+
+//地图初始化
+var bm = new BMap.Map("allmap");
+bm.centerAndZoom(ggPoint, 20);
+bm.addControl(new BMap.NavigationControl());
+var markerall=[];
+var point_arr=[];
+cx1().then(function(){
+  zx();
+});
+// cx1().then(function(){
+//   ff().then(d=>{f1(d)}).then(d1=>{
+//     //console.log(d1);
+//     arrcut(d1,0)
+//   })}
+// )
+function zx(){
+  ff().then((d)=>f1(d)).then(d1=>{
+    //console.log(d1);
+    arrcut(d1,0);
+  })
+}
+
+//坐标转换完之后的回调函数
+translateCallback = function (data){
+  if(data.status === 0) {
+    if(markerall.length!=0){
+      //console.log(markerall);
+      let overlay=markerall.shift();
+      //console.log(overlay);
+      bm.removeOverlay(overlay);
+      bm.clearOverlays();
+    }
+    markerall.push(new BMap.Marker(data.points[0]));
+    bm.addOverlay(markerall[0]);
+    bm.setCenter(data.points[0],20);
+    
+    point_arr.push(data.points[0]);
+    if(point_arr.length>1){
+        var polyline = new BMap.Polyline(point_arr);
+        bm.addOverlay(polyline);
+    }
+  }
+}
+//调用坐标转换接口
+dytranslate=async function(wgs){
+  var convertor = new BMap.Convertor();
+  //console.log(map.getOverlays());
+  await convertor.translate(wgs, 1, 5, translateCallback);
+}
+
+function rTime(date) {
+  var json_date = new Date(date).toJSON();
+  return new Date(+new Date(json_date) + 8 * 3600 * 1000).toISOString().replace(/T/g, ' ').replace(/\.[\d]{3}Z/, '')
+}
+let t;
+let t1=1000;
+arrcut=function(wgsall,i){
+  let old=wgsall[i].baidukey;
+  t= setInterval(function(){
+    if((i+1)!=wgsall.length){
+      //console.log(old);
+      //console.log(wgsall[0].baidukey);
+      let redata = rTime(wgsall[i].uploadtime);
+      let arr1=[];
+      //console.log(wgsall[0].baidukey.lng);
+      if(!(wgsall[i].baidukey.lng>old.lng+1||wgsall[i].baidukey.lng<old.lng-1||(wgsall[i].baidukey.lat>old.lat+1||wgsall[i].baidukey.lat<old.lat-1))){
+        old=wgsall[i].baidukey;
+        let normalStr='<div class="normal">序号: '+wgsall[i].id+'   时间：'+redata+'</div>';
+        $('.left-list').append(normalStr);
+        //$('.left').html($('.left').html()+normalStr);
+        let left1=document.getElementsByClassName('left-list')[0];
+        left1.scroll(0,left1.scrollHeight);
+        //console.log('序号:'+wgsall[i].id+'   时间:'+redata);
+        arr1.push(wgsall[i].baidukey);
+        //console.log(arr1);
+        dytranslate(arr1);
+        arr1.shift();
+        i++;
+      }else{
+        let errorStr='<div class="warn">错误:序号: '+wgsall[i].id+'   时间：'+redata+' payload:'+wgsall[i].payload+'</div>';
+        $('.left-list').append(errorStr);
+        let left1=document.getElementsByClassName('left-list')[0];
+        left1.scroll(0,left1.scrollHeight);
+        i++;
+      } 
+    }else{
+      console.log('调试完毕');
+      clearInterval(t);
+    }
+  },t1)
+}
+
+</script>
